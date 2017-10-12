@@ -1,0 +1,124 @@
+#!/bin/bash
+
+set -e -u -o pipefail -o errtrace
+
+exec 3>&1 # make stdout available as fd 3 for the result
+exec 1>&2 # redirect all output to stderr for logging
+
+export root=$(dirname "${0}" | while read a; do cd "${a}" && pwd && break; done)
+# shellcheck source=./common.sh
+source "${root}/common.sh"
+
+dest="${1:-}"
+
+if [ -z "${dest}" ]; then
+  echo "usage: ${0} <path/to/destination>"
+  exit 1
+fi
+
+cd "${dest}"
+
+payload=$(mktemp ${TMPDIR}/bitbucket-pullrequest-resource-out.XXXXXX)
+cat > "${payload}" <&0
+
+# source
+bitbucket_type=$(jq -r '.source.bitbucket_type // "server"' < "${payload}")
+base_url=$(jq -r '.source.base_url // ""' < "${payload}")
+username=$(jq -r '.source.username // ""' < "${payload}")
+password=$(jq -r '.source.password // ""' < "${payload}")
+project=$(jq -r '.source.project // ""' < "${payload}")
+repository=$(jq -r '.source.repository // ""' < "${payload}")
+git=$(jq -r '.source.git // ""' < "${payload}")
+# version
+version=$(jq -r '.version' < "${payload}")
+version_id=$(jq -r '.version.id' < "${payload}")
+version_branch=$(jq -r '.version.branch' < "${payload}")
+
+if [ -z "${base_url:-}" ]; then
+    echo "error: source.base_url can't be empty"
+    exit 1
+fi
+if [ -z "${project:-}" ]; then
+    echo "error: source.project can't be empty"
+    exit 1
+fi
+if [ -z "${repository:-}" ]; then
+    echo "error: source.repository can't be empty"
+    exit 1
+fi
+if [ -z "${git:-}" ]; then
+    echo "error: source.git can't be empty"
+    exit 1
+fi
+
+if [ "${bitbucket_type}" == "server" ]; then
+    uri="{$base_url}/rest/api/1.0/projects/${project}/repos/${repository}/pull-requests/${version_id}"
+elif [ "$bitbucket_type" == "cloud" ]; then
+    uri="${base_url}/api/2.0/repositories/${project}/${repository}/pullrequests/${version_id}"
+fi
+pr=$(curl -s --fail -u "${username}:${password}" "${uri}")
+
+git_payload=`echo ${git} | jq --argjson version "${version}" '
+    {source: (. * {branch: $version.branch})} + {version: {ref: $version.commit}}
+'`
+
+resource_path="${@%/}"
+echo "${git_payload}" | /opt/git-resource/in "${resource_path}" 1>/dev/null
+# exclude pull-request-info from git index
+echo "pull-request-info" > "${resource_path}/.git/info/exclude"
+
+# Bitbucket Cloud and (self-hosted) Server APIs are a bit different
+if [ "${bitbucket_type}" == "server" ]; then
+    jq -n --argjson version "${version}" --argjson pr "${pr}" '{
+            id: $pr.id,
+            author: {
+                name: $pr.author.user.name,
+                email: $pr.author.user.emailAddress,
+                fullname: $pr.author.user.displayName,
+            },
+            commit: $version.commit,
+            feature_branch: $version.branch,
+            title: $pr.title,
+            upstream_branch: $pr.toRef.id,
+            url: $pr.links.self[0].href,
+            updated_at: $version.updated_at
+        }' > pull-request-info
+
+    jq -n --argjson version "${version}" --argjson pr "${pr}" '{
+            version: $version, 
+            metadata: [
+                {name: "url", value: $pr.links.self[0].href},
+                {name: "author", value: $pr.author.user.displayName}, 
+                {name: "commit", value: $version.commit},
+                {name: "feature-branch", value: $version.branch},
+                {name: "upstream-branch", value: $pr.toRef.id}
+            ]
+        }' >&3
+elif [ "${bitbucket_type}" == "cloud" ]; then
+    jq -n --argjson version "${version}" --argjson pr "${pr}" '{
+            id: $pr.id,
+            author: {
+                name: $pr.author.username,
+                fullname: $pr.author.display_name,
+            },
+            commit: $version.commit,
+            feature_branch: $version.branch,
+            title: $pr.title,
+            upstream_branch: $pr.destination.branch.name,
+            url: $pr.links.html.href,
+            updated_at: $pr.created_on
+        }' > pull-request-info
+
+    jq -n --argjson version "${version}" --argjson pr "${pr}" '{
+            version: $version, 
+            metadata: [
+                {name: "title", value: $pr.title},
+                {name: "url", value: $pr.links.html.href},
+                {name: "author", value: $pr.author.display_name}, 
+                {name: "commit", value: $version.commit},
+                {name: "feature-branch", value: $version.branch},
+                {name: "upstream-branch", value: $pr.destination.branch.name},
+                {name: "pullrequest updated", value: $pr.updated_on}
+            ]
+        }' >&3
+fi
