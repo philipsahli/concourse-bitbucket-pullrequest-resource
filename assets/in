@@ -58,12 +58,12 @@ elif [ "$bitbucket_type" == "cloud" ]; then
 fi
 pr=$(curl -s --fail -u "${username}:${password}" "${uri}")
 
-git_payload=`echo ${git} | jq --argjson version "${version}" '
+git_payload=$(echo "${git}" | jq --argjson version "${version}" '
     {source: (. * {branch: $version.branch})} + {version: {ref: $version.commit}}
-'`
+')
 
 resource_path="${@%/}"
-echo "${git_payload}" | /opt/git-resource/in "${resource_path}" 1>/dev/null
+echo "${git_payload}" | "/opt/git-resource/in" "${resource_path}" 1>/dev/null
 # exclude pull-request-info from git index
 echo "pull-request-info" > "${resource_path}/.git/info/exclude"
 
@@ -82,13 +82,13 @@ if [ "${bitbucket_type}" == "server" ]; then
             upstream_branch: $pr.toRef.id,
             url: $pr.links.self[0].href,
             updated_at: $version.updated_at
-        }' > pull-request-info
+        }' > ./pull-request-info
 
     jq -n --argjson version "${version}" --argjson pr "${pr}" '{
-            version: $version, 
+            version: $version,
             metadata: [
                 {name: "url", value: $pr.links.self[0].href},
-                {name: "author", value: $pr.author.user.displayName}, 
+                {name: "author", value: $pr.author.user.displayName},
                 {name: "commit", value: $version.commit},
                 {name: "feature-branch", value: $version.branch},
                 {name: "upstream-branch", value: $pr.toRef.id}
@@ -107,14 +107,14 @@ elif [ "${bitbucket_type}" == "cloud" ]; then
             upstream_branch: $pr.destination.branch.name,
             url: $pr.links.html.href,
             updated_at: $pr.created_on
-        }' > pull-request-info
+        }' > ./pull-request-info
 
     jq -n --argjson version "${version}" --argjson pr "${pr}" '{
-            version: $version, 
+            version: $version,
             metadata: [
                 {name: "title", value: $pr.title},
                 {name: "url", value: $pr.links.html.href},
-                {name: "author", value: $pr.author.display_name}, 
+                {name: "author", value: $pr.author.display_name},
                 {name: "commit", value: $version.commit},
                 {name: "feature-branch", value: $version.branch},
                 {name: "upstream-branch", value: $pr.destination.branch.name},

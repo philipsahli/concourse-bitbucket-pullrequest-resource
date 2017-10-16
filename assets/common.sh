@@ -7,5 +7,4 @@ function error() {
 }
 trap 'error ${LINENO} ${?}' ERR
 
-
 TMPDIR="${TMPDIR:-/tmp}"

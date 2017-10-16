@@ -44,19 +44,24 @@ if [ -z "${base_url:-}" ]; then
     exit 1
 fi
 
+if [ ! -f "./pull-request-info" ]; then
+    echo "error: pull-request-info not found."
+    exit 1
+fi
 pr=$(cat "./pull-request-info")
-commit=$(echo ${pr} | jq -r '.commit')
+
+commit=$(echo "${pr}" | jq -r '.commit')
 build_url="${ATC_EXTERNAL_URL}/builds/${BUILD_ID}"
 if [ "${bitbucket_type}" == "server" ]; then
     url="${base_url}/rest/build-status/1.0/commits/${commit}"
 
-    json=`echo "${build}" | jq --arg build_url "${build_url}" --arg id "${BUILD_ID}" '{
+    json=$(echo "${build}" | jq --arg build_url "${build_url}" --arg id "${BUILD_ID}" '{
         state: .state,
         key: .key,
         name: (.key + "-" + $id),
         url: $build_url,
         description: .description|tostring
-    }'`
+    }')
 elif [ "${bitbucket_type}" == "cloud" ]; then
     url="${base_url}/api/2.0/repositories/${project}/${repository}/commit/${commit}/statuses/build"
 
@@ -68,13 +73,13 @@ elif [ "${bitbucket_type}" == "cloud" ]; then
     desc=$(eval echo ${desc})
     build_url=$(echo "${build}"| jq -r '.url')
     build_url=$(eval echo $build_url)
-    json=`echo "${build}" | jq --arg build_url "${build_url}" --arg id "${BUILD_ID}" --arg name "${name}" --arg desc "${desc}" '{
+    json=$(echo "${build}" | jq --arg build_url "${build_url}" --arg id "${BUILD_ID}" --arg name "${name}" --arg desc "${desc}" '{
         state: .state,
         key: ($name + "-" + $id),
         name: $name,
         url: $build_url,
         description: $desc
-    }'`
+    }')
 fi
 
 curl -s --fail -u "${username}:${password}" -H "Content-Type: application/json" -XPOST "${url}" -d "${json}"
