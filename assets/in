@@ -18,7 +18,7 @@ fi
 
 cd "${dest}"
 
-payload=$(mktemp ${TMPDIR}/bitbucket-pullrequest-resource-out.XXXXXX)
+payload=$(mktemp "${TMPDIR}/bitbucket-pullrequest-resource-out.XXXXXX")
 cat > "${payload}" <&0
 
 # source
