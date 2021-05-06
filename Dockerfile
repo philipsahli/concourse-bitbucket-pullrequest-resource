@@ -3,7 +3,7 @@ COPY ./assets /assets
 WORKDIR /assets
 RUN /bin/shellcheck --shell=bash check in out *.sh || exit 0
 
-FROM concourse/git-resource:latest
+FROM concourse/git-resource:alpine
 RUN apk -f -q update \
 && apk -f -q add bash curl git jq
 
